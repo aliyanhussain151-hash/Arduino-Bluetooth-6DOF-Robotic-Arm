@@ -1,0 +1,175 @@
+#include <SoftwareSerial.h>
+#include <Servo.h>
+
+Servo servo01, servo02, servo03, servo04, servo05, servo06;
+
+// ⚠️ Keeping pins 0 and 1 as requested (NOT RECOMMENDED)
+SoftwareSerial Bluetooth(0, 1); // RX, TX
+
+// Initial servo positions
+const int servo01Initial = 60;
+const int servo02Initial = 60;
+const int servo03Initial = 40;
+const int servo04Initial = 200;
+const int servo05Initial = 170;
+const int servo06Initial = 100;
+
+int servo1Pos = servo01Initial;
+int servo2Pos = servo02Initial;
+int servo3Pos = servo03Initial;
+int servo4Pos = servo04Initial;
+int servo5Pos = servo05Initial;
+int servo6Pos = servo06Initial;
+
+// Servo limits
+const int servo01Min = 55, servo01Max = 0;
+const int servo02Min = 40, servo02Max = 120;
+const int servo03Min = 30, servo03Max = 130;
+const int servo04Min = 100, servo04Max = 290;
+const int servo05Min = 80, servo05Max = 170;
+const int servo06Min = 0, servo06Max = 290;
+
+// Position saving
+int servo01SP[50], servo02SP[50], servo03SP[50];
+int servo04SP[50], servo05SP[50], servo06SP[50];
+int index = 0;
+int speedDelay = 5;
+String dataIn = "";
+
+void setup() {
+  servo01.attach(2);
+  servo02.attach(3);
+  servo03.attach(4);
+  servo04.attach(5);
+  servo05.attach(6);
+  servo06.attach(7);
+
+  Bluetooth.begin(9600);
+
+  servo01.write(servo1Pos);
+  servo02.write(servo2Pos);
+  servo03.write(servo3Pos);
+  servo04.write(servo4Pos);
+  servo05.write(servo5Pos);
+  servo06.write(servo6Pos);
+
+  delay(200);
+}
+
+void loop() {
+  if (Bluetooth.available()) {
+    dataIn = Bluetooth.readStringUntil('\n');
+    dataIn.trim();
+
+    if (dataIn.startsWith("s6")) moveServoFast(servo01, servo1Pos, dataIn.substring(2).toInt(), servo01Min, servo01Max);
+    else if (dataIn.startsWith("s5")) moveServoFast(servo02, servo2Pos, dataIn.substring(2).toInt(), servo02Min, servo02Max);
+    else if (dataIn.startsWith("s4")) moveServoFast(servo03, servo3Pos, dataIn.substring(2).toInt(), servo03Min, servo03Max);
+    else if (dataIn.startsWith("s3")) moveServoFast(servo04, servo4Pos, dataIn.substring(2).toInt(), servo04Min, servo04Max);
+    else if (dataIn.startsWith("s2")) moveServoFast(servo05, servo5Pos, dataIn.substring(2).toInt(), servo05Min, servo05Max);
+    else if (dataIn.startsWith("s1")) moveServoFast(servo06, servo6Pos, dataIn.substring(2).toInt(), servo06Min, servo06Max);
+    else if (dataIn == "SAVE") savePositions();
+    else if (dataIn == "RUN") runServo();
+    else if (dataIn == "RESET") resetPositions();
+    else if (dataIn == "TEST") testAllMotors();
+    else if (dataIn.startsWith("ss")) speedDelay = constrain(dataIn.substring(2).toInt(), 1, 50);
+  }
+
+  delay(10); // Small delay to prevent watchdog timeouts or overload
+}
+
+void moveServoFast(Servo &servo, int &currentPos, int targetPos, int minLimit, int maxLimit) {
+  targetPos = constrain(targetPos, minLimit, maxLimit);
+  if (currentPos != targetPos) {
+    servo.write(targetPos);
+    delay(100);
+    currentPos = targetPos;
+  }
+}
+
+void savePositions() {
+  if (index < 50) {
+    servo01SP[index] = servo1Pos;
+    servo02SP[index] = servo2Pos;
+    servo03SP[index] = servo3Pos;
+    servo04SP[index] = servo4Pos;
+    servo05SP[index] = servo5Pos;
+    servo06SP[index] = servo6Pos;
+    index++;
+  }
+}
+
+void resetPositions() {
+  memset(servo01SP, 0, sizeof(servo01SP));
+  memset(servo02SP, 0, sizeof(servo02SP));
+  memset(servo03SP, 0, sizeof(servo03SP));
+  memset(servo04SP, 0, sizeof(servo04SP));
+  memset(servo05SP, 0, sizeof(servo05SP));
+  memset(servo06SP, 0, sizeof(servo06SP));
+  index = 0;
+
+  moveServoFast(servo01, servo1Pos, servo01Initial, servo01Min, servo01Max);
+  moveServoFast(servo02, servo2Pos, servo02Initial, servo02Min, servo02Max);
+  moveServoFast(servo03, servo3Pos, servo03Initial, servo03Min, servo03Max);
+  moveServoFast(servo04, servo4Pos, servo04Initial, servo04Min, servo04Max);
+  moveServoFast(servo05, servo5Pos, servo05Initial, servo05Min, servo05Max);
+  moveServoFast(servo06, servo6Pos, servo06Initial, servo06Min, servo06Max);
+}
+
+void runServo() {
+  for (int i = 0; i < index; i++) {
+    if (Bluetooth.available()) {
+      String cmd = Bluetooth.readStringUntil('\n');
+      cmd.trim();
+      if (cmd == "PAUSE") waitForRun();
+      if (cmd == "RESET") {
+        resetPositions();
+        return;
+      }
+      if (cmd.startsWith("ss")) speedDelay = constrain(cmd.substring(2).toInt(), 1, 50);
+    }
+
+    moveServoFast(servo01, servo1Pos, servo01SP[i], servo01Min, servo01Max);
+    moveServoFast(servo02, servo2Pos, servo02SP[i], servo02Min, servo02Max);
+    moveServoFast(servo03, servo3Pos, servo03SP[i], servo03Min, servo03Max);
+    moveServoFast(servo04, servo4Pos, servo04SP[i], servo04Min, servo04Max);
+    moveServoFast(servo05, servo5Pos, servo05SP[i], servo05Min, servo05Max);
+    moveServoFast(servo06, servo6Pos, servo06SP[i], servo06Min, servo06Max);
+  }
+
+  resetPositions(); // return to home
+}
+
+void waitForRun() {
+  while (true) {
+    if (Bluetooth.available()) {
+      String cmd = Bluetooth.readStringUntil('\n');
+      cmd.trim();
+      if (cmd == "RUN") return;
+      if (cmd == "RESET") {
+        resetPositions();
+        break;
+      }
+    }
+    delay(10);
+  }
+}
+
+void testAllMotors() {
+  moveServoFast(servo01, servo1Pos, servo01Max, servo01Min, servo01Max);
+  moveServoFast(servo01, servo1Pos, servo01Min, servo01Min, servo01Max);
+
+  moveServoFast(servo02, servo2Pos, servo02Max, servo02Min, servo02Max);
+  moveServoFast(servo02, servo2Pos, servo02Min, servo02Min, servo02Max);
+
+  moveServoFast(servo03, servo3Pos, servo03Max, servo03Min, servo03Max);
+  moveServoFast(servo03, servo3Pos, servo03Min, servo03Min, servo03Max);
+
+  moveServoFast(servo04, servo4Pos, servo04Max, servo04Min, servo04Max);
+  moveServoFast(servo04, servo4Pos, servo04Min, servo04Min, servo04Max);
+
+  moveServoFast(servo05, servo5Pos, servo05Max, servo05Min, servo05Max);
+  moveServoFast(servo05, servo5Pos, servo05Min, servo05Min, servo05Max);
+
+  moveServoFast(servo06, servo6Pos, servo06Max, servo06Min, servo06Max);
+  moveServoFast(servo06, servo6Pos, servo06Min, servo06Min, servo06Max);
+}
